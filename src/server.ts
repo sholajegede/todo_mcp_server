@@ -38,6 +38,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      {
+        name: 'list_todos',
+        description: 'List all todos for the authenticated user',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              description: 'User ID to list todos for',
+            },
+          },
+          required: ['userId'],
+        },
+      },
+      {
+        name: 'create_todo',
+        description: 'Create a new todo item',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              description: 'User ID to create todo for',
+            },
+            title: {
+              type: 'string',
+              description: 'Title of the todo item',
+            },
+            description: {
+              type: 'string',
+              description: 'Optional description of the todo item',
+            },
+          },
+          required: ['userId', 'title'],
+        },
+      },
     ],
   };
 });
