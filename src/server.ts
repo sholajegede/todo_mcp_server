@@ -195,6 +195,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      {
+        name: 'get_subscription_status',
+        description: 'Get the user\'s subscription status and todo usage',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde',
+            },
+          },
+          required: ['authToken'],
+        },
+      },
+      {
+        name: 'upgrade_subscription',
+        description: 'Upgrade user subscription to paid plan',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde',
+            },
+          },
+          required: ['authToken'],
+        },
+      },
     ],
   };
 });
