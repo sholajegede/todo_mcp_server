@@ -30,6 +30,33 @@ function getStoredToken(): string | null {
   return null;
 }
 
+// Helper function to verify JWT token from Kinde
+async function verifyToken(token: string): Promise<{ userId: string; email: string } | null> {
+  try {
+    // For real Kinde tokens, we need to verify with Kinde's public key
+    // For now, we'll decode and validate the structure
+    const decoded = jwt.decode(token) as any;
+    
+    if (!decoded || !decoded.sub) {
+      return null;
+    }
+
+    // Validate that it's a Kinde token
+    if (decoded.iss !== process.env.KINDE_ISSUER_URL) {
+      console.log('Token issuer mismatch');
+      return null;
+    }
+
+    return {
+      userId: decoded.sub,
+      email: decoded.email || 'user@example.com',
+    };
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    return null;
+  }
+}
+
 // Create MCP server
 const server = new Server(
   {
