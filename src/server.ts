@@ -5,13 +5,30 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { neon } from '@neondatabase/serverless';
+import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 // Load environment variables
 dotenv.config();
 
 // Initialize Neon PostgreSQL
 const sql = neon(process.env.DATABASE_URL!);
+
+// Token storage functions
+const TOKEN_FILE = join(process.cwd(), '.auth-token');
+
+function saveToken(token: string) {
+  writeFileSync(TOKEN_FILE, token);
+}
+
+function getStoredToken(): string | null {
+  if (existsSync(TOKEN_FILE)) {
+    return readFileSync(TOKEN_FILE, 'utf8').trim();
+  }
+  return null;
+}
 
 // Create MCP server
 const server = new Server(
