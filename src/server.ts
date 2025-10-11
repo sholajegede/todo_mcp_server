@@ -439,6 +439,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'get_subscription_status': {
+        const { authToken } = args as { authToken: string };
+        
+        if (!authToken) {
+          return {
+            content: [{ type: 'text', text: 'Error: authToken is required' }],
+          };
+        }
+
+        const user = await verifyToken(authToken);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        try {
+          const subscription = await sql`
+            SELECT * FROM users 
+            WHERE user_id = ${user.userId}
+          `;
+          
+          // If no subscription exists, create one
+          if (subscription.length === 0) {
+            await sql`
+              INSERT INTO users (user_id, subscription_status, free_todos_used)
+              VALUES (${user.userId}, 'free', 0)
+            `;
+          }
+          
+          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                subscription: {
+                  status: userSub.subscription_status || 'free',
+                  freeTodosUsed: userSub.free_todos_used || 0,
+                  totalTodosCreated: userSub.total_todos_created || 0,
+                  freeTodosRemaining: Math.max(0, 5 - (userSub.free_todos_used || 0)),
+                }
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
+      case 'upgrade_subscription': {
+        const { authToken } = args as { authToken: string };
+        
+        if (!authToken) {
+          return {
+            content: [{ type: 'text', text: 'Error: authToken is required' }],
+          };
+        }
+
+        const user = await verifyToken(authToken);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        try {
+          // In a real implementation, you would integrate with a payment processor
+          // For now, we'll simulate the upgrade
+          await sql`
+            INSERT INTO users (user_id, subscription_status, plan)
+            VALUES (${user.userId}, 'active', 'premium')
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+              subscription_status = 'active',
+              plan = 'premium'
+          `;
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                message: 'Subscription upgraded successfully! You can now create unlimited todos.',
+                subscriptionStatus: 'active'
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
       case 'login': {
         // Start the auth server in the background
         const { spawn } = await import('child_process');
