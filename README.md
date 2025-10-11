@@ -52,7 +52,7 @@ Before you start, you'll need:
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd mcp-todo-rebuild
+cd todo-mcp-server
 
 # Install dependencies
 npm install
