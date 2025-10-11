@@ -1,18 +1,18 @@
-# 🚀 Modern Todo MCP Server with Authentication, Database & Billing
+# Modern Todo MCP Server with Authentication, Database & Billing
 
 A complete **Model Context Protocol (MCP)** server that demonstrates modern web development practices with authentication, billing, and database integration. Perfect for beginners learning full-stack development!
 
-## 📋 What This Project Does
+## What This Project Does
 
 This project creates a **Todo Management System** that you can interact with through **Cursor AI** (or any MCP-compatible client). It includes:
 
-- 🔐 **Real Authentication** with Kinde
-- 💳 **Billing System** with free tier limits
-- 🗄️ **Database Storage** with Neon PostgreSQL
-- 🤖 **AI Integration** through MCP protocol
-- 📱 **Web Interface** for authentication
+- **Real Authentication** with Kinde
+- **Billing System** with free tier limits
+- **Database Storage** with Neon PostgreSQL
+- **AI Integration** through MCP protocol
+- **Web Interface** for authentication
 
-## 🎯 Key Features
+## Key Features
 
 - **5 Free Todos** for new users
 - **Upgrade to Paid** for unlimited todos
@@ -21,7 +21,7 @@ This project creates a **Todo Management System** that you can interact with thr
 - **AI Chat Integration** through Cursor
 - **Session Management** with secure cookies
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
@@ -36,7 +36,7 @@ This project creates a **Todo Management System** that you can interact with thr
                        └──────────────────┘
 ```
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 Before you start, you'll need:
 
@@ -45,7 +45,7 @@ Before you start, you'll need:
 3. **A Kinde account** (free)
 4. **Cursor IDE** (for MCP integration)
 
-## 🚀 Quick Start Guide
+## Quick Start Guide
 
 ### Step 1: Clone and Install
 
@@ -111,7 +111,7 @@ npm run build
 npm start
 ```
 
-## 🔧 Project Structure
+## Project Structure
 
 ```
 mcp-todo-rebuild/
@@ -126,7 +126,7 @@ mcp-todo-rebuild/
 └── README.md               # This file
 ```
 
-## 📚 How It Works
+## How It Works
 
 ### 1. **MCP Server** (`src/server.ts`)
 - Handles AI chat commands like "create todo", "list todos"
@@ -143,7 +143,7 @@ mcp-todo-rebuild/
 - Sets up indexes for performance
 - Initializes user and todo schemas
 
-## 🎮 How to Use
+## How to Use
 
 ### 1. Start the Servers
 
@@ -193,7 +193,7 @@ delete todo             # Delete a todo
 logout                  # Log out
 ```
 
-## 🔐 Authentication Flow
+## Authentication Flow
 
 1. **Type "login"** in Cursor chat
 2. **Click the URL** to open authentication page
@@ -202,14 +202,14 @@ logout                  # Log out
 5. **Use "save_token"** command in Cursor
 6. **Start creating todos!**
 
-## 💳 Billing System
+## Billing System
 
 - **Free Tier**: 5 todos per user
 - **Paid Tier**: Unlimited todos (upgrade through Kinde portal)
 - **Automatic Tracking**: System tracks usage automatically
 - **Upgrade URL**: Provided when limit is reached
 
-## 🗄️ Database Schema
+## Database Schema
 
 ### Users Table
 ```sql
@@ -237,7 +237,7 @@ CREATE TABLE todos (
 );
 ```
 
-## 🛠️ Development Commands
+## Development Commands
 
 ```bash
 # Development
@@ -252,7 +252,7 @@ npm run build           # Build for production
 npm start              # Run production server
 ```
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -274,7 +274,7 @@ JWT_SECRET=your_secret_key
 NODE_ENV=development
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -302,7 +302,7 @@ Run with debug logging:
 DEBUG=* npm run dev
 ```
 
-## 📖 Learning Resources
+## Learning Resources
 
 ### What You'll Learn
 
@@ -321,7 +321,7 @@ DEBUG=* npm run dev
 4. **Database Relations**: User-todo relationships
 5. **Billing Integration**: Freemium business models
 
-## 🚀 Next Steps
+## Next Steps
 
 Once you understand this project, you can:
 
@@ -331,7 +331,7 @@ Once you understand this project, you can:
 4. **Deploy**: Host on Vercel, Railway, or AWS
 5. **Scale**: Add caching, load balancing
 
-## 🤝 Contributing
+## Contributing
 
 This is a learning project! Feel free to:
 
@@ -340,11 +340,11 @@ This is a learning project! Feel free to:
 - Add new features
 - Create tutorials
 
-## 📄 License
+## License
 
 MIT License - feel free to use this for learning and projects!
 
-## 🆘 Need Help?
+## Need Help?
 
 If you get stuck:
 
@@ -353,4 +353,4 @@ If you get stuck:
 3. Make sure all services are running
 4. Check the console for error messages
 
-Remember: This is a learning project designed to teach modern web development concepts. Take your time, experiment, and don't hesitate to explore the code! 🚀
+Remember: This is a learning project designed to teach modern web development concepts. Take your time, experiment, and don't hesitate to explore the code!
