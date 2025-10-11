@@ -121,6 +121,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'create_todo': {
+        const { userId, title, description } = args as { userId: string; title: string; description?: string };
+        
+        if (!userId || !title) {
+          return {
+            content: [{ type: 'text', text: 'Error: userId and title are required' }],
+          };
+        }
+
+        try {
+          const todoId = await sql`
+            INSERT INTO todos (user_id, title, description)
+            VALUES (${userId}, ${title}, ${description || null})
+            RETURNING id
+          `;
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                todoId: todoId[0].id,
+                message: 'Todo created successfully' 
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `Error: Unknown tool "${name}"` }],
