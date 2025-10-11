@@ -217,18 +217,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'list_todos': {
-        const { userId } = args as { userId: string };
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
         
-        if (!userId) {
+        if (!token) {
           return {
-            content: [{ type: 'text', text: 'Error: userId is required' }],
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "list todos" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
         try {
           const todos = await sql`
             SELECT * FROM todos 
-            WHERE user_id = ${userId}
+            WHERE user_id = ${user.userId}
             ORDER BY created_at DESC
           `;
 
@@ -243,18 +259,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'create_todo': {
-        const { userId, title, description } = args as { userId: string; title: string; description?: string };
+        const { authToken, title, description } = args as { authToken: string; title: string; description?: string };
         
-        if (!userId || !title) {
+        if (!authToken || !title) {
           return {
-            content: [{ type: 'text', text: 'Error: userId and title are required' }],
+            content: [{ type: 'text', text: 'Error: authToken and title are required' }],
+          };
+        }
+
+        const user = await verifyToken(authToken);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
         try {
           const todoId = await sql`
             INSERT INTO todos (user_id, title, description)
-            VALUES (${userId}, ${title}, ${description || null})
+            VALUES (${user.userId}, ${title}, ${description || null})
             RETURNING id
           `;
 
