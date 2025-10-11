@@ -95,6 +95,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'list_todos': {
+        const { userId } = args as { userId: string };
+        
+        if (!userId) {
+          return {
+            content: [{ type: 'text', text: 'Error: userId is required' }],
+          };
+        }
+
+        try {
+          const todos = await sql`
+            SELECT * FROM todos 
+            WHERE user_id = ${userId}
+            ORDER BY created_at DESC
+          `;
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ success: true, todos }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `Error: Unknown tool "${name}"` }],
