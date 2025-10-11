@@ -223,6 +223,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['authToken'],
         },
       },
+      {
+        name: 'create_todo_interactive',
+        description: 'Create a new todo item with interactive prompts',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde (optional if saved)',
+            },
+            title: {
+              type: 'string',
+              description: 'Title of the todo item',
+            },
+            description: {
+              type: 'string',
+              description: 'Optional description of the todo item',
+            },
+            completed: {
+              type: 'boolean',
+              description: 'Completion status of the todo',
+            },
+          },
+        },
+      },
+      {
+        name: 'update_todo_interactive',
+        description: 'Update an existing todo item with interactive prompts',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde (optional if saved)',
+            },
+          },
+        },
+      },
+      {
+        name: 'delete_todo_interactive',
+        description: 'Delete a todo item with interactive prompts',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde (optional if saved)',
+            },
+          },
+        },
+      },
     ],
   };
 });
