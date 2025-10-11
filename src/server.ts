@@ -194,6 +194,78 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'update_todo': {
+        const { todoId, title, description, completed } = args as { 
+          todoId: string; 
+          title?: string; 
+          description?: string; 
+          completed?: boolean; 
+        };
+        
+        if (!todoId) {
+          return {
+            content: [{ type: 'text', text: 'Error: todoId is required' }],
+          };
+        }
+
+        try {
+          await sql`
+            UPDATE todos 
+            SET 
+              title = COALESCE(${title || null}, title),
+              description = COALESCE(${description || null}, description),
+              completed = COALESCE(${completed !== undefined ? completed : null}, completed),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${todoId}
+          `;
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                message: 'Todo updated successfully' 
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
+      case 'delete_todo': {
+        const { todoId } = args as { todoId: string };
+        
+        if (!todoId) {
+          return {
+            content: [{ type: 'text', text: 'Error: todoId is required' }],
+          };
+        }
+
+        try {
+          await sql`
+            DELETE FROM todos 
+            WHERE id = ${todoId}
+          `;
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                message: 'Todo deleted successfully' 
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+          };
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `Error: Unknown tool "${name}"` }],
