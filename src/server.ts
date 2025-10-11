@@ -299,20 +299,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'update_todo': {
-        const { todoId, title, description, completed } = args as { 
+        const { authToken, todoId, title, description, completed } = args as { 
+          authToken: string;
           todoId: string; 
           title?: string; 
           description?: string; 
           completed?: boolean; 
         };
         
-        if (!todoId) {
+        if (!authToken || !todoId) {
           return {
-            content: [{ type: 'text', text: 'Error: todoId is required' }],
+            content: [{ type: 'text', text: 'Error: authToken and todoId are required' }],
+          };
+        }
+
+        const user = await verifyToken(authToken);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
         try {
+          // Verify todo belongs to user
+          const todo = await sql`
+            SELECT * FROM todos 
+            WHERE id = ${todoId} 
+            AND user_id = ${user.userId}
+          `;
+
+          if (todo.length === 0) {
+            return {
+              content: [{ type: 'text', text: 'Error: Todo not found or access denied' }],
+            };
+          }
+
           await sql`
             UPDATE todos 
             SET 
@@ -340,15 +361,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'delete_todo': {
-        const { todoId } = args as { todoId: string };
+        const { authToken, todoId } = args as { authToken: string; todoId: string };
         
-        if (!todoId) {
+        if (!authToken || !todoId) {
           return {
-            content: [{ type: 'text', text: 'Error: todoId is required' }],
+            content: [{ type: 'text', text: 'Error: authToken and todoId are required' }],
+          };
+        }
+
+        const user = await verifyToken(authToken);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
         try {
+          // Verify todo belongs to user
+          const todo = await sql`
+            SELECT * FROM todos 
+            WHERE id = ${todoId} 
+            AND user_id = ${user.userId}
+          `;
+
+          if (todo.length === 0) {
+            return {
+              content: [{ type: 'text', text: 'Error: Todo not found or access denied' }],
+            };
+          }
+
           await sql`
             DELETE FROM todos 
             WHERE id = ${todoId}
