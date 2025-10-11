@@ -131,6 +131,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['todoId'],
         },
       },
+      {
+        name: 'login',
+        description: 'Login with Kinde to get authentication token',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'save_token',
+        description: 'Save your Kinde authentication token for future use',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            token: {
+              type: 'string',
+              description: 'Your Kinde JWT token',
+            },
+          },
+          required: ['token'],
+        },
+      },
+      {
+        name: 'logout',
+        description: 'Logout and clear stored authentication token',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
     ],
   };
 });
