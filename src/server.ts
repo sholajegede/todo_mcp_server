@@ -74,6 +74,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['userId', 'title'],
         },
       },
+      {
+        name: 'update_todo',
+        description: 'Update an existing todo item',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            todoId: {
+              type: 'string',
+              description: 'ID of the todo to update',
+            },
+            title: {
+              type: 'string',
+              description: 'New title for the todo',
+            },
+            description: {
+              type: 'string',
+              description: 'New description for the todo',
+            },
+            completed: {
+              type: 'boolean',
+              description: 'Completion status of the todo',
+            },
+          },
+          required: ['todoId'],
+        },
+      },
+      {
+        name: 'delete_todo',
+        description: 'Delete a todo item',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            todoId: {
+              type: 'string',
+              description: 'ID of the todo to delete',
+            },
+          },
+          required: ['todoId'],
+        },
+      },
     ],
   };
 });
