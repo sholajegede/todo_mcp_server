@@ -4,10 +4,14 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { neon } from '@neondatabase/serverless';
 import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
+
+// Initialize Neon PostgreSQL
+const sql = neon(process.env.DATABASE_URL!);
 
 // Create MCP server
 const server = new Server(
