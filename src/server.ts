@@ -340,6 +340,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'login': {
+        // Start the auth server in the background
+        const { spawn } = await import('child_process');
+        const authServer = spawn('npm', ['run', 'auth-server'], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        authServer.unref();
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🔐 Starting Kinde Auth Server...\n\n🚀 Go to: http://localhost:3000\n\n📋 Steps:\n1. Click "Login with Kinde" on the page\n2. Complete the login process\n3. Copy your JWT token from the success page\n4. Use the token with other MCP tools like "list my todos" or "create todo: Buy groceries"\n\n✨ The auth server is now running in the background!`,
+            },
+          ],
+        };
+      }
+      
+      case 'save_token': {
+        const { token } = args as { token: string };
+        
+        if (!token) {
+          return {
+            content: [{ type: 'text', text: 'Error: token is required' }],
+          };
+        }
+        
+        saveToken(token);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `✅ Token saved successfully! You can now use commands like "list todos" and "create todo" without providing the token each time.`,
+            },
+          ],
+        };
+      }
+
+      case 'logout': {
+        // Clear the stored token
+        if (existsSync(TOKEN_FILE)) {
+          const fs = await import('fs');
+          fs.unlinkSync(TOKEN_FILE);
+        }
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `✅ Logged out successfully! Your authentication token has been cleared.\n\nTo login again, use the "login" command.`,
+            },
+          ],
+        };
+      }
+
       default:
         return {
           content: [{ type: 'text', text: `Error: Unknown tool "${name}"` }],
