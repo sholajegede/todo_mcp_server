@@ -629,6 +629,201 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'create_todo_interactive': {
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
+        
+        if (!token) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "create todo" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        // If title is provided, create the todo
+        if (args?.title) {
+          // Check if user can create more todos
+          const subscription = await sql`
+            SELECT * FROM users 
+            WHERE user_id = ${user.userId}
+          `;
+
+          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
+          
+          if (userSub.subscription_status !== 'active' && userSub.free_todos_used >= 5) {
+            return {
+              content: [{
+                type: 'text',
+                text: `🚫 You have used up all your free todos.\n\n💳 Upgrade your plan to create more todos:\n🔗 Use the "upgrade_subscription" command`
+              }],
+            };
+          }
+
+          const todoId = await sql`
+            INSERT INTO todos (user_id, title, description, completed)
+            VALUES (${user.userId}, ${args.title as string}, ${args.description as string || null}, ${args.completed as boolean || false})
+            RETURNING id
+          `;
+
+          // Update user's todo count if they're on free plan
+          if (userSub.subscription_status !== 'active') {
+            await sql`
+              UPDATE users 
+              SET free_todos_used = free_todos_used + 1
+              WHERE user_id = ${user.userId}
+            `;
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ 
+                success: true, 
+                todoId: todoId[0].id,
+                message: 'Todo created successfully',
+                title: args.title,
+                description: args.description,
+                completed: args.completed || false
+              }, null, 2)
+            }],
+          };
+        }
+
+        // If no title provided, ask for details
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `📝 **Create New Todo**\n\nPlease provide the following details:\n\n1. **Title**: What is the title of your todo?\n2. **Description**: (Optional) What is the description?\n3. **Completed**: (Optional) Is it completed? (true/false)\n\nPlease respond with your answers in this format:\n\`\`\`\ntitle: Your todo title\ndescription: Your description (optional)\ncompleted: false (optional)\n\`\`\``,
+            },
+          ],
+        };
+      }
+
+      case 'update_todo_interactive': {
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
+        
+        if (!token) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "update todo" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        // Get user's todos to show them
+        const todos = await sql`
+          SELECT * FROM todos 
+          WHERE user_id = ${user.userId}
+          ORDER BY created_at DESC
+        `;
+
+        if (todos.length === 0) {
+          return {
+            content: [{ type: 'text', text: '❌ No todos found. Create a todo first!' }],
+          };
+        }
+
+        let todoList = '📋 **Your Todos:**\n\n';
+        todos.forEach((todo, index) => {
+          todoList += `${index + 1}. **ID: ${todo.id}** - ${todo.title}\n`;
+          if (todo.description) todoList += `   Description: ${todo.description}\n`;
+          todoList += `   Status: ${todo.completed ? '✅ Completed' : '⏳ Pending'}\n\n`;
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${todoList}**Which todo would you like to update?**\n\nPlease respond with the todo ID and new details in this format:\n\`\`\`\ntodoId: 1\ntitle: New title (optional)\ndescription: New description (optional)\ncompleted: true (optional)\n\`\`\``,
+            },
+          ],
+        };
+      }
+
+      case 'delete_todo_interactive': {
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
+        
+        if (!token) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "delete todo" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        // Get user's todos to show them
+        const todos = await sql`
+          SELECT * FROM todos 
+          WHERE user_id = ${user.userId}
+          ORDER BY created_at DESC
+        `;
+
+        if (todos.length === 0) {
+          return {
+            content: [{ type: 'text', text: '❌ No todos found. Create a todo first!' }],
+          };
+        }
+
+        let todoList = '📋 **Your Todos:**\n\n';
+        todos.forEach((todo, index) => {
+          todoList += `${index + 1}. **ID: ${todo.id}** - ${todo.title}\n`;
+          if (todo.description) todoList += `   Description: ${todo.description}\n`;
+          todoList += `   Status: ${todo.completed ? '✅ Completed' : '⏳ Pending'}\n\n`;
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `${todoList}**Which todo would you like to delete?**\n\nPlease respond with the todo ID:\n\`\`\`\ntodoId: 1\n\`\`\``,
+            },
+          ],
+        };
+      }
+
       case 'login': {
         // Start the auth server in the background
         const { spawn } = await import('child_process');
