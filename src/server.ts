@@ -4,6 +4,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 // Create MCP server
 const server = new Server(
