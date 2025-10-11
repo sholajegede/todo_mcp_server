@@ -88,12 +88,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            userId: {
+            authToken: {
               type: 'string',
-              description: 'User ID to list todos for',
+              description: 'Authentication token from Kinde (optional if saved)',
             },
           },
-          required: ['userId'],
         },
       },
       {
@@ -102,9 +101,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            userId: {
+            authToken: {
               type: 'string',
-              description: 'User ID to create todo for',
+              description: 'Authentication token from Kinde',
             },
             title: {
               type: 'string',
@@ -115,7 +114,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Optional description of the todo item',
             },
           },
-          required: ['userId', 'title'],
+          required: ['authToken', 'title'],
         },
       },
       {
@@ -124,6 +123,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde',
+            },
             todoId: {
               type: 'string',
               description: 'ID of the todo to update',
@@ -141,7 +144,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Completion status of the todo',
             },
           },
-          required: ['todoId'],
+          required: ['authToken', 'todoId'],
         },
       },
       {
@@ -150,12 +153,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde',
+            },
             todoId: {
               type: 'string',
               description: 'ID of the todo to delete',
             },
           },
-          required: ['todoId'],
+          required: ['authToken', 'todoId'],
         },
       },
       {
