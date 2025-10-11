@@ -303,11 +303,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         try {
+          // Check user's subscription status
+          const subscription = await sql`
+            SELECT * FROM users 
+            WHERE user_id = ${user.userId}
+          `;
+
+          // If user doesn't exist, create them
+          if (subscription.length === 0) {
+            await sql`
+              INSERT INTO users (user_id, subscription_status, free_todos_used)
+              VALUES (${user.userId}, 'free', 0)
+            `;
+          }
+
+          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
+          
+          // Check if user can create more todos
+          if (userSub.subscription_status !== 'active' && userSub.free_todos_used >= 5) {
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ 
+                  success: false, 
+                  error: 'You have used all 5 free todos. Please upgrade your plan to create more todos.',
+                  upgradeRequired: true,
+                  freeTodosUsed: userSub.free_todos_used,
+                  maxFreeTodos: 5
+                }, null, 2)
+              }],
+            };
+          }
+
           const todoId = await sql`
             INSERT INTO todos (user_id, title, description)
             VALUES (${user.userId}, ${title}, ${description || null})
             RETURNING id
           `;
+
+          // Update user's todo count if they're on free plan
+          if (userSub.subscription_status !== 'active') {
+            await sql`
+              UPDATE users 
+              SET free_todos_used = free_todos_used + 1
+              WHERE user_id = ${user.userId}
+            `;
+          }
 
           return {
             content: [{
