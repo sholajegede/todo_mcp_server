@@ -6,15 +6,15 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { neon } from '@neondatabase/serverless';
 import jwt from 'jsonwebtoken';
+// @ts-ignore
+import JwksClient from 'jwks-client';
 import dotenv from 'dotenv';
+import { createKindeServerClient, GrantType, SessionManager } from '@kinde-oss/kinde-typescript-sdk';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 // Load environment variables
 dotenv.config();
-
-// Initialize Neon PostgreSQL
-const sql = neon(process.env.DATABASE_URL!);
 
 // Token storage functions
 const TOKEN_FILE = join(process.cwd(), '.auth-token');
@@ -29,6 +29,56 @@ function getStoredToken(): string | null {
   }
   return null;
 }
+
+// Initialize Neon PostgreSQL
+const sql = neon(process.env.DATABASE_URL!);
+
+// Initialize JWKS client for Kinde token verification
+const client = JwksClient({
+  jwksUri: `${process.env.KINDE_ISSUER_URL}/.well-known/jwks.json`,
+  cache: true,
+  cacheMaxAge: 600000, // 10 minutes
+});
+
+// Create Kinde client for authentication
+const kindeClient = createKindeServerClient(GrantType.AUTHORIZATION_CODE, {
+  authDomain: process.env.KINDE_ISSUER_URL!,
+  clientId: process.env.KINDE_CLIENT_ID!,
+  clientSecret: process.env.KINDE_CLIENT_SECRET!,
+  redirectURL: 'http://localhost:3000/callback',
+  logoutRedirectURL: 'http://localhost:3000',
+});
+
+// Simple session manager for Kinde - use a shared session store
+const sessionStore: Record<string, any> = {};
+
+const createSessionManager = (): SessionManager => ({
+  getSessionItem: async (key: string) => {
+    return sessionStore[key] || null;
+  },
+  setSessionItem: async (key: string, value: any) => {
+    sessionStore[key] = value;
+  },
+  removeSessionItem: async (key: string) => {
+    delete sessionStore[key];
+  },
+  destroySession: async () => {
+    Object.keys(sessionStore).forEach(key => delete sessionStore[key]);
+  }
+});
+
+// Create MCP server
+const server = new Server(
+  {
+    name: 'todo-mcp-server',
+    version: '1.0.0',
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
 
 // Helper function to verify JWT token from Kinde
 async function verifyToken(token: string): Promise<{ userId: string; email: string } | null> {
@@ -57,114 +107,117 @@ async function verifyToken(token: string): Promise<{ userId: string; email: stri
   }
 }
 
-// Create MCP server
-const server = new Server(
-  {
-    name: 'todo-mcp-server',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
+// Helper function to get Kinde billing status
+async function getKindeBillingStatus(userId: string, accessToken: string): Promise<{ plan: string; features: any; canCreate: boolean; reason?: string }> {
+  try {
+    // Decode JWT token to get user information
+    const decoded = jwt.decode(accessToken) as any;
+    console.log('🔍 JWT Token data for user:', userId, 'Decoded:', decoded);
+    
+    // Check local database for free tier usage only
+    const subscription = await sql`
+      SELECT * FROM users 
+      WHERE user_id = ${userId}
+    `;
+
+    // If user doesn't exist, create them with details from JWT
+    if (subscription.length === 0) {
+      await sql`
+        INSERT INTO users (user_id, name, email, subscription_status, plan, free_todos_used)
+        VALUES (${userId}, ${decoded.given_name || decoded.name || 'User'}, ${decoded.email || 'user@example.com'}, 'free', 'free', 0)
+      `;
+      console.log('👤 New user created:', decoded.given_name || decoded.name, decoded.email);
+    }
+
+    // Check if user has used all free todos (1 todo limit for testing)
+    const freeTodosUsed = subscription.length > 0 ? subscription[0].free_todos_used : 0;
+    
+    if (freeTodosUsed < 1) {
+      return {
+        plan: 'free',
+        features: { maxTodos: 1, used: freeTodosUsed },
+        canCreate: true,
+        reason: `Free tier - ${1 - freeTodosUsed} todo remaining`
+      };
+    }
+    
+    return {
+      plan: 'free',
+      features: { maxTodos: 1, used: freeTodosUsed },
+      canCreate: false,
+      reason: 'You have used your free todo. Please upgrade your plan at https://learnflowai.kinde.com/portal to create more todos.'
+    };
+  } catch (error) {
+    console.error('Error checking Kinde billing:', error);
+    return {
+      plan: 'free',
+      features: { maxTodos: 1 },
+      canCreate: false,
+      reason: 'Error checking billing status'
+    };
   }
-);
+}
+
+// Helper function to check if user can create more todos
+async function canCreateTodo(userId: string, accessToken?: string): Promise<{ canCreate: boolean; reason?: string }> {
+  try {
+    if (accessToken) {
+      const billingStatus = await getKindeBillingStatus(userId, accessToken);
+      return {
+        canCreate: billingStatus.canCreate,
+        reason: billingStatus.reason
+      };
+    }
+
+    // Fallback to local database check
+    const subscription = await sql`
+      SELECT * FROM users 
+      WHERE user_id = ${userId}
+    `;
+
+    if (subscription.length === 0) {
+      return { canCreate: true };
+    }
+
+    const userSub = subscription[0];
+    
+    if (userSub.subscription_status === 'active') {
+      return { canCreate: true };
+    }
+    
+    if (userSub.free_todos_used < 5) {
+      return { canCreate: true };
+    }
+    
+    return { 
+      canCreate: false, 
+      reason: 'You have used all 5 free todos. Please upgrade to create more todos.' 
+    };
+  } catch (error) {
+    console.error('Error checking subscription:', error);
+    return { canCreate: false, reason: 'Error checking subscription status' };
+  }
+}
+
+// Helper function to validate arguments
+function validateArgs(args: any, requiredFields: string[]): { valid: boolean; error?: string; validatedArgs?: any } {
+  if (!args) {
+    return { valid: false, error: 'Missing arguments' };
+  }
+  
+  for (const field of requiredFields) {
+    if (!args[field]) {
+      return { valid: false, error: `Missing required field: ${field}` };
+    }
+  }
+  
+  return { valid: true, validatedArgs: args };
+}
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
-      {
-        name: 'hello',
-        description: 'Say hello to the MCP server',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'list_todos',
-        description: 'List all todos for the authenticated user',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            authToken: {
-              type: 'string',
-              description: 'Authentication token from Kinde (optional if saved)',
-            },
-          },
-        },
-      },
-      {
-        name: 'create_todo',
-        description: 'Create a new todo item',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            authToken: {
-              type: 'string',
-              description: 'Authentication token from Kinde',
-            },
-            title: {
-              type: 'string',
-              description: 'Title of the todo item',
-            },
-            description: {
-              type: 'string',
-              description: 'Optional description of the todo item',
-            },
-          },
-          required: ['authToken', 'title'],
-        },
-      },
-      {
-        name: 'update_todo',
-        description: 'Update an existing todo item',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            authToken: {
-              type: 'string',
-              description: 'Authentication token from Kinde',
-            },
-            todoId: {
-              type: 'string',
-              description: 'ID of the todo to update',
-            },
-            title: {
-              type: 'string',
-              description: 'New title for the todo',
-            },
-            description: {
-              type: 'string',
-              description: 'New description for the todo',
-            },
-            completed: {
-              type: 'boolean',
-              description: 'Completion status of the todo',
-            },
-          },
-          required: ['authToken', 'todoId'],
-        },
-      },
-      {
-        name: 'delete_todo',
-        description: 'Delete a todo item',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            authToken: {
-              type: 'string',
-              description: 'Authentication token from Kinde',
-            },
-            todoId: {
-              type: 'string',
-              description: 'ID of the todo to delete',
-            },
-          },
-          required: ['authToken', 'todoId'],
-        },
-      },
       {
         name: 'login',
         description: 'Login with Kinde to get authentication token',
@@ -188,11 +241,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'logout',
-        description: 'Logout and clear stored authentication token',
+        name: 'list_todos',
+        description: 'List all todos for the authenticated user',
         inputSchema: {
           type: 'object',
-          properties: {},
+          properties: {
+            authToken: {
+              type: 'string',
+              description: 'Authentication token from Kinde (optional if saved)',
+            },
+          },
         },
       },
       {
@@ -224,7 +282,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'create_todo_interactive',
+        name: 'create_todo',
         description: 'Create a new todo item with interactive prompts',
         inputSchema: {
           type: 'object',
@@ -249,7 +307,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'update_todo_interactive',
+        name: 'update_todo',
         description: 'Update an existing todo item with interactive prompts',
         inputSchema: {
           type: 'object',
@@ -262,7 +320,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'delete_todo_interactive',
+        name: 'delete_todo',
         description: 'Delete a todo item with interactive prompts',
         inputSchema: {
           type: 'object',
@@ -274,6 +332,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: 'logout',
+        description: 'Logout and clear stored authentication token',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+        {
+          name: 'get_kinde_billing',
+          description: 'Get Kinde billing information and subscription status',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              authToken: {
+                type: 'string',
+                description: 'Authentication token from Kinde (optional if saved)',
+              },
+            },
+          },
+        },
+        {
+          name: 'refresh_billing_status',
+          description: 'Force refresh billing status from Kinde (useful after plan changes)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              authToken: {
+                type: 'string',
+                description: 'Authentication token from Kinde (optional if saved)',
+              },
+            },
+          },
+        },
+        {
+          name: 'logout',
+          description: 'Logout and clear stored authentication token',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
     ],
   };
 });
@@ -284,17 +384,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'hello': {
+      case 'login': {
+        // Start the auth server in the background
+        const { spawn } = await import('child_process');
+        const authServer = spawn('npm', ['run', 'auth-server'], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        authServer.unref();
+        
         return {
           content: [
             {
               type: 'text',
-              text: 'Hello! Welcome to the Todo MCP Server! 🚀',
+              text: `🔐 Starting Kinde Auth Server...\n\n🚀 Go to: http://localhost:3000\n\n📋 Steps:\n1. Click "Login with Kinde" on the page\n2. Complete the login process\n3. Copy your JWT token from the success page\n4. Use the token with other MCP tools like "list my todos" or "create todo: Buy groceries"\n\n✨ The auth server is now running in the background!`,
             },
           ],
         };
       }
-
+      
+      case 'save_token': {
+        const validation = validateArgs(args, ['token']);
+        if (!validation.valid) {
+          return {
+            content: [{ type: 'text', text: `Error: ${validation.error}` }],
+          };
+        }
+        
+        const token = validation.validatedArgs!.token as string;
+        saveToken(token);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `✅ Token saved successfully! You can now use commands like "list todos" and "create todo" without providing the token each time.`,
+            },
+          ],
+        };
+      }
+      
       case 'list_todos': {
         // Try to get token from args or stored token
         let token = args?.authToken as string;
@@ -320,316 +449,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        try {
-          const todos = await sql`
-            SELECT * FROM todos 
-            WHERE user_id = ${user.userId}
-            ORDER BY created_at DESC
-          `;
+        const todos = await sql`
+          SELECT * FROM todos 
+          WHERE user_id = ${user.userId}
+          ORDER BY created_at DESC
+        `;
 
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ success: true, todos }, null, 2) }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
-        }
-      }
-
-      case 'create_todo': {
-        const { authToken, title, description } = args as { authToken: string; title: string; description?: string };
-        
-        if (!authToken || !title) {
-          return {
-            content: [{ type: 'text', text: 'Error: authToken and title are required' }],
-          };
-        }
-
-        const user = await verifyToken(authToken);
-        if (!user) {
-          return {
-            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
-          };
-        }
-
-        try {
-          // Check user's subscription status
-          const subscription = await sql`
-            SELECT * FROM users 
-            WHERE user_id = ${user.userId}
-          `;
-
-          // If user doesn't exist, create them
-          if (subscription.length === 0) {
-            await sql`
-              INSERT INTO users (user_id, subscription_status, free_todos_used)
-              VALUES (${user.userId}, 'free', 0)
-            `;
-          }
-
-          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
-          
-          // Check if user can create more todos
-          if (userSub.subscription_status !== 'active' && userSub.free_todos_used >= 5) {
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify({ 
-                  success: false, 
-                  error: 'You have used all 5 free todos. Please upgrade your plan to create more todos.',
-                  upgradeRequired: true,
-                  freeTodosUsed: userSub.free_todos_used,
-                  maxFreeTodos: 5
-                }, null, 2)
-              }],
-            };
-          }
-
-          const todoId = await sql`
-            INSERT INTO todos (user_id, title, description)
-            VALUES (${user.userId}, ${title}, ${description || null})
-            RETURNING id
-          `;
-
-          // Update user's todo count if they're on free plan
-          if (userSub.subscription_status !== 'active') {
-            await sql`
-              UPDATE users 
-              SET free_todos_used = free_todos_used + 1
-              WHERE user_id = ${user.userId}
-            `;
-          }
-
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: true, 
-                todoId: todoId[0].id,
-                message: 'Todo created successfully' 
-              }, null, 2)
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
-        }
-      }
-
-      case 'update_todo': {
-        const { authToken, todoId, title, description, completed } = args as { 
-          authToken: string;
-          todoId: string; 
-          title?: string; 
-          description?: string; 
-          completed?: boolean; 
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, todos }, null, 2) }],
         };
-        
-        if (!authToken || !todoId) {
-          return {
-            content: [{ type: 'text', text: 'Error: authToken and todoId are required' }],
-          };
-        }
-
-        const user = await verifyToken(authToken);
-        if (!user) {
-          return {
-            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
-          };
-        }
-
-        try {
-          // Verify todo belongs to user
-          const todo = await sql`
-            SELECT * FROM todos 
-            WHERE id = ${todoId} 
-            AND user_id = ${user.userId}
-          `;
-
-          if (todo.length === 0) {
-            return {
-              content: [{ type: 'text', text: 'Error: Todo not found or access denied' }],
-            };
-          }
-
-          await sql`
-            UPDATE todos 
-            SET 
-              title = COALESCE(${title || null}, title),
-              description = COALESCE(${description || null}, description),
-              completed = COALESCE(${completed !== undefined ? completed : null}, completed),
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = ${todoId}
-          `;
-
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: true, 
-                message: 'Todo updated successfully' 
-              }, null, 2)
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
-        }
       }
 
-      case 'delete_todo': {
-        const { authToken, todoId } = args as { authToken: string; todoId: string };
-        
-        if (!authToken || !todoId) {
-          return {
-            content: [{ type: 'text', text: 'Error: authToken and todoId are required' }],
-          };
-        }
 
-        const user = await verifyToken(authToken);
-        if (!user) {
-          return {
-            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
-          };
-        }
 
-        try {
-          // Verify todo belongs to user
-          const todo = await sql`
-            SELECT * FROM todos 
-            WHERE id = ${todoId} 
-            AND user_id = ${user.userId}
-          `;
-
-          if (todo.length === 0) {
-            return {
-              content: [{ type: 'text', text: 'Error: Todo not found or access denied' }],
-            };
-          }
-
-          await sql`
-            DELETE FROM todos 
-            WHERE id = ${todoId}
-          `;
-
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: true, 
-                message: 'Todo deleted successfully' 
-              }, null, 2)
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
-        }
-      }
 
       case 'get_subscription_status': {
-        const { authToken } = args as { authToken: string };
-        
-        if (!authToken) {
+        const validation = validateArgs(args, ['authToken']);
+        if (!validation.valid) {
           return {
-            content: [{ type: 'text', text: 'Error: authToken is required' }],
+            content: [{ type: 'text', text: `Error: ${validation.error}` }],
           };
         }
 
-        const user = await verifyToken(authToken);
+        const user = await verifyToken(validation.validatedArgs!.authToken as string);
         if (!user) {
           return {
             content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
-        try {
-          const subscription = await sql`
-            SELECT * FROM users 
-            WHERE user_id = ${user.userId}
+        const subscription = await sql`
+          SELECT * FROM users 
+          WHERE user_id = ${user.userId}
+        `;
+        
+        // If no subscription exists, create one
+        if (subscription.length === 0) {
+          await sql`
+            INSERT INTO users (user_id, subscription_status, free_todos_used)
+            VALUES (${user.userId}, 'free', 0)
           `;
-          
-          // If no subscription exists, create one
-          if (subscription.length === 0) {
-            await sql`
-              INSERT INTO users (user_id, subscription_status, free_todos_used)
-              VALUES (${user.userId}, 'free', 0)
-            `;
-          }
-          
-          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
-          
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: true, 
-                subscription: {
-                  status: userSub.subscription_status || 'free',
-                  freeTodosUsed: userSub.free_todos_used || 0,
-                  totalTodosCreated: userSub.total_todos_created || 0,
-                  freeTodosRemaining: Math.max(0, 5 - (userSub.free_todos_used || 0)),
-                }
-              }, null, 2)
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
         }
+        
+        const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
+        
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ 
+              success: true, 
+              subscription: {
+                status: userSub.subscription_status || 'free',
+                freeTodosUsed: userSub.free_todos_used || 0,
+                totalTodosCreated: userSub.total_todos_created || 0,
+                freeTodosRemaining: Math.max(0, 5 - (userSub.free_todos_used || 0)),
+              }
+            }, null, 2)
+          }],
+        };
       }
 
       case 'upgrade_subscription': {
-        const { authToken } = args as { authToken: string };
-        
-        if (!authToken) {
+        const validation = validateArgs(args, ['authToken']);
+        if (!validation.valid) {
           return {
-            content: [{ type: 'text', text: 'Error: authToken is required' }],
+            content: [{ type: 'text', text: `Error: ${validation.error}` }],
           };
         }
 
-        const user = await verifyToken(authToken);
+        const user = await verifyToken(validation.validatedArgs!.authToken as string);
         if (!user) {
           return {
             content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
           };
         }
 
-        try {
-          // In a real implementation, you would integrate with a payment processor
-          // For now, we'll simulate the upgrade
-          await sql`
-            INSERT INTO users (user_id, subscription_status, plan)
-            VALUES (${user.userId}, 'active', 'premium')
-            ON CONFLICT (user_id) 
-            DO UPDATE SET 
-              subscription_status = 'active',
-              plan = 'premium'
-          `;
+        // In a real implementation, you would integrate with a payment processor
+        // For now, we'll simulate the upgrade
+        await sql`
+          INSERT INTO users (user_id, subscription_status, plan)
+          VALUES (${user.userId}, 'active', 'premium')
+          ON CONFLICT (user_id) 
+          DO UPDATE SET 
+            subscription_status = 'active',
+            plan = 'premium'
+        `;
 
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: true, 
-                message: 'Subscription upgraded successfully! You can now create unlimited todos.',
-                subscriptionStatus: 'active'
-              }, null, 2)
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ type: 'text', text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }],
-          };
-        }
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ 
+              success: true, 
+              message: 'Subscription upgraded successfully! You can now create unlimited todos.',
+              subscriptionStatus: 'active'
+            }, null, 2)
+          }],
+        };
       }
 
-      case 'create_todo_interactive': {
+      case 'create_todo': {
         // Try to get token from args or stored token
         let token = args?.authToken as string;
         if (!token) {
@@ -657,18 +575,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // If title is provided, create the todo
         if (args?.title) {
           // Check if user can create more todos
-          const subscription = await sql`
-            SELECT * FROM users 
-            WHERE user_id = ${user.userId}
-          `;
-
-          const userSub = subscription[0] || { subscription_status: 'free', free_todos_used: 0 };
-          
-          if (userSub.subscription_status !== 'active' && userSub.free_todos_used >= 5) {
+          const { canCreate, reason } = await canCreateTodo(user.userId);
+          if (!canCreate) {
             return {
               content: [{
                 type: 'text',
-                text: `🚫 You have used up all your free todos.\n\n💳 Upgrade your plan to create more todos:\n🔗 Use the "upgrade_subscription" command`
+                text: `🚫 You have used up all your free todos.\n\n💳 Upgrade your plan to create more todos:\n🔗 https://learnflowai.kinde.com/portal`
               }],
             };
           }
@@ -679,14 +591,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             RETURNING id
           `;
 
-          // Update user's todo count if they're on free plan
-          if (userSub.subscription_status !== 'active') {
-            await sql`
-              UPDATE users 
-              SET free_todos_used = free_todos_used + 1
-              WHERE user_id = ${user.userId}
-            `;
-          }
+          // Update user's todo count
+          await sql`
+            INSERT INTO users (user_id, free_todos_used)
+            VALUES (${user.userId}, 1)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+              free_todos_used = users.free_todos_used + 1
+          `;
 
           return {
             content: [{
@@ -714,7 +626,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'update_todo_interactive': {
+      case 'update_todo': {
         // Try to get token from args or stored token
         let token = args?.authToken as string;
         if (!token) {
@@ -769,7 +681,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'delete_todo_interactive': {
+      case 'delete_todo': {
         // Try to get token from args or stored token
         let token = args?.authToken as string;
         if (!token) {
@@ -824,46 +736,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'login': {
-        // Start the auth server in the background
-        const { spawn } = await import('child_process');
-        const authServer = spawn('npm', ['run', 'auth-server'], {
-          detached: true,
-          stdio: 'ignore'
-        });
-        authServer.unref();
-        
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `🔐 Starting Kinde Auth Server...\n\n🚀 Go to: http://localhost:3000\n\n📋 Steps:\n1. Click "Login with Kinde" on the page\n2. Complete the login process\n3. Copy your JWT token from the success page\n4. Use the token with other MCP tools like "list my todos" or "create todo: Buy groceries"\n\n✨ The auth server is now running in the background!`,
-            },
-          ],
-        };
-      }
-      
-      case 'save_token': {
-        const { token } = args as { token: string };
-        
-        if (!token) {
-          return {
-            content: [{ type: 'text', text: 'Error: token is required' }],
-          };
-        }
-        
-        saveToken(token);
-        
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `✅ Token saved successfully! You can now use commands like "list todos" and "create todo" without providing the token each time.`,
-            },
-          ],
-        };
-      }
-
       case 'logout': {
         // Clear the stored token
         if (existsSync(TOKEN_FILE)) {
@@ -880,6 +752,126 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ],
         };
       }
+
+      case 'get_kinde_billing': {
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
+        
+        if (!token) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "get kinde billing" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        try {
+          const billingStatus = await getKindeBillingStatus(user.userId, token);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                kindeBilling: {
+                  plan: billingStatus.plan,
+                  features: billingStatus.features,
+                  canCreate: billingStatus.canCreate,
+                  reason: billingStatus.reason,
+                  upgradeUrl: `https://${process.env.KINDE_ISSUER_URL?.replace('https://', '')}/portal`,
+                  selfServicePortal: `https://${process.env.KINDE_ISSUER_URL?.replace('https://', '')}/portal`
+                }
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: 'Failed to fetch Kinde billing information',
+                details: error instanceof Error ? error.message : 'Unknown error'
+              }, null, 2)
+            }],
+          };
+        }
+      }
+
+      case 'refresh_billing_status': {
+        // Try to get token from args or stored token
+        let token = args?.authToken as string;
+        if (!token) {
+          token = getStoredToken() || '';
+        }
+        
+        if (!token) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ No authentication token found. Please:\n1. Type "login" to get the authentication URL\n2. Complete login at http://localhost:3000\n3. Copy your token and use "save_token" to store it\n4. Then try "refresh billing status" again`,
+              },
+            ],
+          };
+        }
+
+        const user = await verifyToken(token);
+        if (!user) {
+          return {
+            content: [{ type: 'text', text: 'Error: Invalid authentication token' }],
+          };
+        }
+
+        try {
+          console.log('🔄 Force refreshing billing status for user:', user.userId);
+          const billingStatus = await getKindeBillingStatus(user.userId, token);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                message: 'Billing status refreshed successfully!',
+                kindeBilling: {
+                  plan: billingStatus.plan,
+                  features: billingStatus.features,
+                  canCreate: billingStatus.canCreate,
+                  reason: billingStatus.reason,
+                  upgradeUrl: `https://${process.env.KINDE_ISSUER_URL?.replace('https://', '')}/portal`,
+                  selfServicePortal: `https://${process.env.KINDE_ISSUER_URL?.replace('https://', '')}/portal`,
+                  lastChecked: new Date().toISOString()
+                }
+              }, null, 2)
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: 'Failed to refresh billing information',
+                details: error instanceof Error ? error.message : 'Unknown error'
+              }, null, 2)
+            }],
+          };
+        }
+      }
+
 
       default:
         return {
