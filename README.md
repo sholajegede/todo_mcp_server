@@ -2,6 +2,10 @@
 
 A complete **Model Context Protocol (MCP)** server that demonstrates modern web development practices with authentication, billing, and database integration. Perfect for beginners learning full-stack development!
 
+<a href="https://glama.ai/mcp/servers/@sholajegede/todo_mcp_server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@sholajegede/todo_mcp_server/badge" alt="Todo Server MCP server" />
+</a>
+
 ## What This Project Does
 
 This project creates a **Todo Management System** that you can interact with through **Cursor AI** (or any MCP-compatible client). It includes:
